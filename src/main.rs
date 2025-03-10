@@ -1,46 +1,55 @@
 #![feature(iterator_try_collect)]
 use anyhow::Result;
-use crypt::{decrypt, encrypt, gen_sra_keys};
-use crypto_bigint::{BoxedUint, Limb};
-use crypto_primes::generate_prime;
+use cards::{Card, Color, Value};
+use crypt::{decrypt, encrypt, gen_sra_key};
+use crypto_bigint::BoxedUint;
+use crypto_primes::{generate_prime, generate_safe_prime, is_prime};
 
+mod cards;
 mod crypt;
+mod proto;
 
-const P_BITS: u32 = 128;
+pub const P_BITS: u32 = 256; // 4 Limbs
 
 fn main() -> Result<()> {
-    let p: BoxedUint = generate_prime(P_BITS);
-    let q: BoxedUint = generate_prime(P_BITS);
+    Ok(()).and(test_crypt())
+}
 
-    let (e1, d1) = gen_sra_keys(&p, &q)?;
-    let (e2, d2) = gen_sra_keys(&p, &q)?;
+fn big_primes() -> Result<()> {
+    let p: BoxedUint = generate_safe_prime(P_BITS);
+    let is_prime = is_prime(&p);
+    println!("{}", p.to_string_radix_vartime(10));
+    println!("{}", is_prime);
+    Ok(())
+}
 
-    let deck: Vec<u32> = vec![2, 3, 4, 5, 6, 7];
+fn test_crypt() -> Result<()> {
+    let p: BoxedUint = generate_safe_prime(P_BITS);
+    let q: BoxedUint = generate_safe_prime(P_BITS);
 
-    let mut e_deck: Vec<BoxedUint> = deck
-        .iter()
-        .map(|n| BoxedUint::from(Limb::from_u32(*n)))
-        .collect();
+    // sharing any key will break encryption
+    let k1 = gen_sra_key(&p, &q)?;
+    let k2 = gen_sra_key(&p, &q)?;
 
-    println!("e_deck unencrypted:");
-    e_deck.iter().for_each(|m| println!("{:?}", m));
+    let deck = Color::iter()
+        .flat_map(|c| Value::iter().map(move |v| (c, v)))
+        .map(|(&c, &v)| Card(c, v));
+
+    // println!("deck unencrypted:");
+    // deck.clone().for_each(|m| println!("{:?}", m));
+
+    let mut e_deck: Vec<BoxedUint> = deck.map(|c| BoxedUint::try_from(&c)).try_collect()?;
 
     // c1 scope start
-    e_deck = e_deck
-        .iter()
-        .map(|m| encrypt(&m, e1.clone()))
-        .try_collect()?;
+    e_deck = e_deck.iter().map(|m| encrypt(&m, &k1)).try_collect()?;
     e_deck.sort_unstable();
     // c1 scope end
 
-    println!("e_deck first shuffle:");
-    e_deck.iter().for_each(|m| println!("{:?}", m));
+    // println!("e_deck first shuffle:");
+    // e_deck.iter().for_each(|m| println!("{:?}", m));
 
     // c2 scope end
-    e_deck = e_deck
-        .iter()
-        .map(|m| encrypt(&m, e2.clone()))
-        .try_collect()?;
+    e_deck = e_deck.iter().map(|m| encrypt(&m, &k2)).try_collect()?;
     e_deck.sort_unstable();
     // c2 scope end
 
@@ -49,34 +58,25 @@ fn main() -> Result<()> {
 
     // c1 scope start
     let n_deck = e_deck.split_off(2);
-    let hand_for2: Vec<BoxedUint> = e_deck
-        .iter()
-        .map(|m| decrypt(m, d1.clone()))
-        .try_collect()?;
+    let hand_for2: Vec<BoxedUint> = e_deck.iter().map(|m| decrypt(m, &k1)).try_collect()?;
     let mut e_deck = n_deck;
     // c1 scope end: hand -> c2
 
-    println!("e_deck first deal:");
-    e_deck.iter().for_each(|m| println!("{:?}", m));
-
     // c2 scope start
     let n_deck = e_deck.split_off(2);
-    let hand_for1: Vec<BoxedUint> = e_deck
-        .iter()
-        .map(|m| decrypt(m, d2.clone()))
-        .try_collect()?;
+    let hand_for1: Vec<BoxedUint> = e_deck.iter().map(|m| decrypt(m, &k2)).try_collect()?;
     let e_deck = n_deck;
     // c2 scope end: hand -> c1
-
-    println!("e_deck second deal:");
-    e_deck.iter().for_each(|m| println!("{:?}", m));
 
     println!("c1 hand:");
     hand_for1.iter().for_each(|m| println!("{:?}", m));
 
-    let hand_for1: Vec<BoxedUint> = hand_for1
+    let hand_for1: Vec<Card> = hand_for1
         .iter()
-        .map(|m| decrypt(m, d1.clone()))
+        .map(|m| decrypt(m, &k1))
+        .try_collect::<Vec<BoxedUint>>()?
+        .iter()
+        .map(|c| Card::try_from(c))
         .try_collect()?;
 
     println!("c1 hand decrypted:");
@@ -85,9 +85,12 @@ fn main() -> Result<()> {
     println!("c2 hand:");
     hand_for2.iter().for_each(|m| println!("{:?}", m));
 
-    let hand_for2: Vec<BoxedUint> = hand_for2
+    let hand_for2: Vec<Card> = hand_for2
         .iter()
-        .map(|m| decrypt(m, d2.clone()))
+        .map(|m| decrypt(m, &k2))
+        .try_collect::<Vec<BoxedUint>>()?
+        .iter()
+        .map(|c| Card::try_from(c))
         .try_collect()?;
 
     println!("c2 hand decrypted:");

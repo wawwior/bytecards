@@ -7,44 +7,26 @@ use crypto_bigint::{
 };
 
 #[derive(Debug, Clone)]
-pub struct EncryptionKey {
+pub struct Key {
     e: BoxedUint,
-    n: NonZero<BoxedUint>,
-    n_params: BoxedMontyParams,
-}
-
-impl EncryptionKey {
-    pub fn new(n: BoxedUint, e: BoxedUint) -> Result<Self> {
-        let n_odd = Odd::new(n.clone())
-            .into_option()
-            .ok_or(anyhow!("Invalid Modulo"))?;
-        let n_params = BoxedMontyParams::new(n_odd);
-        let n = NonZero::new(n).unwrap();
-
-        Ok(Self { e, n, n_params })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DecryptionKey {
     d: BoxedUint,
     n: NonZero<BoxedUint>,
     n_params: BoxedMontyParams,
 }
 
-impl DecryptionKey {
-    pub fn new(n: BoxedUint, d: BoxedUint) -> Result<Self> {
+impl Key {
+    pub fn new(n: BoxedUint, e: BoxedUint, d: BoxedUint) -> Result<Self> {
         let n_odd = Odd::new(n.clone())
             .into_option()
             .ok_or(anyhow!("Invalid Modulo"))?;
         let n_params = BoxedMontyParams::new(n_odd);
         let n = NonZero::new(n).unwrap();
 
-        Ok(Self { d, n, n_params })
+        Ok(Self { e, d, n, n_params })
     }
 }
 
-pub fn gen_sra_keys(p: &BoxedUint, q: &BoxedUint) -> Result<(EncryptionKey, DecryptionKey)> {
+pub fn gen_sra_key(p: &BoxedUint, q: &BoxedUint) -> Result<Key> {
     let n = p.mul(q);
     let phi = (p - BoxedUint::one()).mul(&(q - BoxedUint::one()));
     let phi_nz = NonZero::new(phi.clone()).unwrap();
@@ -58,17 +40,14 @@ pub fn gen_sra_keys(p: &BoxedUint, q: &BoxedUint) -> Result<(EncryptionKey, Decr
 
     let d = e.inv_mod(&phi).unwrap();
 
-    Ok((
-        EncryptionKey::new(n.clone(), e)?,
-        DecryptionKey::new(n.clone(), d)?,
-    ))
+    Ok(Key::new(n, e, d)?)
 }
 
-pub fn encrypt(msg: &BoxedUint, key: EncryptionKey) -> Result<BoxedUint> {
+pub fn encrypt(msg: &BoxedUint, key: &Key) -> Result<BoxedUint> {
     Ok(reduce(msg, &key.n_params).pow(&key.e).retrieve())
 }
 
-pub fn decrypt(msg: &BoxedUint, key: DecryptionKey) -> Result<BoxedUint> {
+pub fn decrypt(msg: &BoxedUint, key: &Key) -> Result<BoxedUint> {
     Ok(reduce(msg, &key.n_params).pow(&key.d).retrieve())
 }
 
