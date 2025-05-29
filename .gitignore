@@ -1,1 +1,4 @@
 /target
+.direnv/bin
+.direnv
+.helix
