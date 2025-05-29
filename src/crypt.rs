@@ -10,7 +10,6 @@ use crypto_bigint::{
 pub struct Key {
     e: BoxedUint,
     d: BoxedUint,
-    n: NonZero<BoxedUint>,
     n_params: BoxedMontyParams,
 }
 
@@ -20,9 +19,8 @@ impl Key {
             .into_option()
             .ok_or(anyhow!("Invalid Modulo"))?;
         let n_params = BoxedMontyParams::new(n_odd);
-        let n = NonZero::new(n).unwrap();
 
-        Ok(Self { e, d, n, n_params })
+        Ok(Self { e, d, n_params })
     }
 }
 
@@ -30,17 +28,16 @@ pub fn gen_sra_key(p: &BoxedUint, q: &BoxedUint) -> Result<Key> {
     let n = p.mul(q);
     let phi = (p - BoxedUint::one()).mul(&(q - BoxedUint::one()));
     let phi_nz = NonZero::new(phi.clone()).unwrap();
-    let mut rng = OsRng::default();
-    let mut e = BoxedUint::random_mod(rng.as_rngcore(), &phi_nz);
+    let mut e = BoxedUint::random_mod(OsRng.as_rngcore(), &phi_nz);
 
     while phi.gcd(&e) != BoxedUint::one() {
         println!("GCD not 1, trying again.");
-        e = BoxedUint::random_mod(rng.as_rngcore(), &phi_nz);
+        e = BoxedUint::random_mod(OsRng.as_rngcore(), &phi_nz);
     }
 
     let d = e.inv_mod(&phi).unwrap();
 
-    Ok(Key::new(n, e, d)?)
+    Key::new(n, e, d)
 }
 
 pub fn encrypt(msg: &BoxedUint, key: &Key) -> Result<BoxedUint> {

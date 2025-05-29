@@ -13,7 +13,7 @@ impl TryFrom<&BoxedUint> for Card {
     type Error = postcard::Error;
     fn try_from(value: &BoxedUint) -> Result<Self, Self::Error> {
         let value = value - BoxedUint::from(2u32);
-        postcard::from_bytes(&*value.to_le_bytes())
+        postcard::from_bytes(&value.to_le_bytes())
     }
 }
 
