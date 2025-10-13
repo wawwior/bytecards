@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    neat-flakes.url = "github:wawwior/neat-flakes";
     crane.url = "github:ipetkov/crane";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -13,84 +13,85 @@
 
   outputs =
     inputs@{ self, ... }:
-    inputs.flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import inputs.nixpkgs {
-          inherit system;
-          overlays = [ (import inputs.rust-overlay) ];
-        };
 
-        inherit (pkgs) lib;
+    inputs.neat-flakes.lib.eachSystem
+      [
+        "x86_64-linux"
+        "x86_64-darwin"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ]
+      (
+        system:
+        let
 
-        craneLib = (inputs.crane.mkLib pkgs).overrideToolchain (
-          pkgs:
-          pkgs.rust-bin.selectLatestNightlyWith (
-            toolchain:
-            toolchain.default.override {
-              extensions = [
-                "rust-analyzer"
+          pkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = [ (import inputs.rust-overlay) ];
+          };
+
+          craneLib = (inputs.crane.mkLib pkgs).overrideToolchain (
+            pkgs: pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default)
+          );
+
+          src = craneLib.cleanCargoSource ./.;
+
+          commonArgs = {
+            inherit src;
+            strictDeps = true;
+
+            buildInputs = [ ];
+          };
+
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+          crane-package = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+            }
+          );
+        in
+        {
+          checks.${system} = {
+            inherit crane-package;
+
+            clippy = craneLib.cargoClippy (
+              commonArgs
+              // {
+                inherit cargoArtifacts;
+              }
+            );
+
+            doc = craneLib.cargoDoc (
+              commonArgs
+              // {
+                inherit cargoArtifacts;
+              }
+            );
+
+            fmt = craneLib.cargoFmt {
+              inherit src;
+            };
+
+            deny = craneLib.cargoDeny {
+              inherit src;
+            };
+          };
+
+          packages.${system} = {
+            default = crane-package;
+          };
+
+          devShells.${system} = {
+            default = craneLib.devShell {
+              checks = self.checks.${system};
+
+              packages = [
+                pkgs.rust-analyzer
               ];
-            }
-          )
-        );
-
-        src = craneLib.cleanCargoSource ./.;
-
-        commonArgs = {
-          inherit src;
-          strictDeps = true;
-
-          buildInputs = [ ];
-        };
-
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-
-        bytecards = craneLib.buildPackage (
-          commonArgs
-          // {
-            inherit cargoArtifacts;
-          }
-        );
-      in
-      {
-        checks = {
-          inherit bytecards;
-
-          bytecards-clippy = craneLib.cargoClippy (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-            }
-          );
-
-          bytecards-doc = craneLib.cargoDoc (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-            }
-          );
-
-          bytecards-fmt = craneLib.cargoFmt {
-            inherit src;
+            };
           };
-
-          bytecards-deny = craneLib.cargoDeny {
-            inherit src;
-          };
-        };
-
-        packages = {
-          default = bytecards;
-        };
-
-        devShells = {
-          default = craneLib.devShell {
-            checks = self.checks.${system};
-
-            packages = [ ];
-          };
-        };
-      }
-    );
+        }
+      );
 }
